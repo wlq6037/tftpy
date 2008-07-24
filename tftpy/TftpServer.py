@@ -1,39 +1,22 @@
-import socket, os, re, time, random
+import socket, re, time, random
 from TftpShared import *
 from TftpPacketTypes import *
 from TftpPacketFactory import *
+from TftpNativeFileSys import *
 
-class TftpServer(TftpSession):
-    """This class implements a tftp server object."""
+class TftpCommonServer(TftpSession):
+    """This class implements an abstract tftp server object."""
 
-    def __init__(self, tftproot='/tftpboot'):
-        """Class constructor. It takes a single optional argument, which is
-        the path to the tftproot directory to serve files from and/or write
-        them to."""
+    def __init__(self, file_sys):
+        """Class constructor. It takes a single argument, which is an object
+        providing file system access in an abstract way."""
         self.listenip = None
         self.listenport = None
         self.sock = None
-        self.root = tftproot
+        self.file_sys = file_sys
         # A dict of handlers, where each session is keyed by a string like
         # local-tid:ip:tid for the remote end.
         self.handlers = {}
-
-        if os.path.exists(self.root):
-            logger.debug("tftproot %s does exist" % self.root)
-            if not os.path.isdir(self.root):
-                raise TftpException, "The tftproot must be a directory."
-            else:
-                logger.debug("tftproot %s is a directory" % self.root)
-                if os.access(self.root, os.R_OK):
-                    logger.debug("tftproot %s is readable" % self.root)
-                else:
-                    raise TftpException, "The tftproot must be readable"
-                if os.access(self.root, os.W_OK):
-                    logger.debug("tftproot %s is writable" % self.root)
-                else:
-                    logger.warning("The tftproot %s is not writable" % self.root)
-        else:
-            raise TftpException, "The tftproot does not exist."
 
     def listen(self,
                listenip="",
@@ -94,7 +77,7 @@ class TftpServer(TftpSession):
                                     % (raddress, rport))
                             handler = TftpServerHandler(raddress, int(rport),
                                                         TftpState('rrq'),
-                                                        self.root,
+                                                        self.file_sys,
                                                         listenip,
                                                         tftp_factory)
                             self.handlers[handler.key] = handler
@@ -158,6 +141,15 @@ class TftpServer(TftpSession):
                     del self.handlers[key]
             deletion_list = []
 
+class TftpServer(TftpCommonServer):
+    """This class implements a tftp server object."""
+
+    def __init__(self, tftproot='/tftpboot'):
+        """Class constructor. It takes a single optional argument, which is
+        the path to the tftproot directory to serve files from and/or write
+        them to."""
+        TftpCommonServer.__init__(self, TftpNativeFileSys(root = tftproot))
+
 class TftpServerHandler(TftpSession):
     """This class implements a handler for a given server session, handling
     the work for one download."""
@@ -169,7 +161,7 @@ class TftpServerHandler(TftpSession):
             return "%s:%d" % (self.host, self.port)
     key = property(get_key)
 
-    def __init__(self, host, port, state, root, listenip, factory):
+    def __init__(self, host, port, state, file_sys, listenip, factory):
         TftpSession.__init__(self)
         self.host = host
         self.port = port
@@ -179,9 +171,9 @@ class TftpServerHandler(TftpSession):
         # Note, correct state here is important as it tells the handler whether it's
         # handling a download or an upload.
         self.state = state
-        self.root = root
+        self.file_sys = file_sys
         self.mode = None
-        self.filename = None
+        self.file_path = None
         self.sock = False
         self.options = { 'blksize': DEF_BLKSIZE }
         self.blocknumber = 0
@@ -281,27 +273,21 @@ class TftpServerHandler(TftpSession):
 
             if self.state.state == 'rrq':
                 logger.debug("Received RRQ. Composing response.")
-                self.filename = self.root + os.sep + recvpkt.filename
-                logger.debug("The path to the desired file is %s" %
-                        self.filename)
-                self.filename = os.path.abspath(self.filename)
-                logger.debug("The absolute path is %s" % self.filename)
-                # Security check. Make sure it's prefixed by the tftproot.
-                if self.filename.find(self.root) == 0:
-                    logger.debug("The path appears to be safe: %s" %
-                            self.filename)
-                else:
-                    logger.error("Insecure path: %s" % self.filename)
+                self.file_path = self.file_sys.get_path(recvpkt.filename)
+                logger.debug("The desired file is %s" % \
+                        self.file_path.get_path())
+                if not self.file_path.safe():
+                    logger.error("Insecure path: %s" % self.file_path)
                     self.errors += 1
                     self.senderror(self.sock,
                                    TftpErrors.AccessViolation,
                                    raddress,
                                    rport)
-                    raise TftpException, "Insecure path: %s" % self.filename
+                    raise TftpException, "Insecure path: %s" % self.file_path
 
                 # Does the file exist?
-                if os.path.exists(self.filename):
-                    logger.debug("File %s exists." % self.filename)
+                if self.file_path.exists():
+                    logger.debug("File %s exists." % self.file_path)
 
                     # Check options. Currently we only support the blksize
                     # option.
@@ -319,7 +305,7 @@ class TftpServerHandler(TftpSession):
                             self.options['blksize'] = DEF_BLKSIZE
                     if recvpkt.options.has_key('tsize'):
                         logger.debug('RRQ includes tsize option')
-                        self.options['tsize'] = os.stat(self.filename).st_size
+                        self.options['tsize'] = self.file_path.get_size()
                     self.send_oack()
 
                     if len(recvpkt.options.keys()) > 0:
@@ -333,12 +319,13 @@ class TftpServerHandler(TftpSession):
 
                 else:
                     logger.error("Requested file %s does not exist." %
-                            self.filename)
+                            self.file_path)
                     self.senderror(self.sock,
                                    TftpErrors.FileNotFound,
                                    raddress,
                                    rport)
-                    raise TftpException, "Requested file not found: %s" % self.filename
+                    raise TftpException, "Requested file not found: %s" % \
+                            self.file_path
 
             else:
                 # We're receiving an RRQ when we're not expecting one.
@@ -392,10 +379,9 @@ class TftpServerHandler(TftpSession):
             raise TftpException, "Invalid packet received during download"
 
     def start_download(self):
-        """This method opens self.filename, stores the resulting file object
-        in self.fileobj, and calls send_dat()."""
+        """This method opens the requested file and initiates sending."""
         self.state.state = 'dat'
-        self.fileobj = open(self.filename, "rb")
+        self.fileobj = self.file_path.open_read()
         self.send_dat()
 
     def send_dat(self, resend=False):
@@ -405,7 +391,7 @@ class TftpServerHandler(TftpSession):
             self.buffer = self.fileobj.read(blksize)
             logger.debug("Read %d bytes into buffer" % len(self.buffer))
             if len(self.buffer) < blksize:
-                logger.info("Reached EOF on file %s" % self.filename)
+                logger.info("Reached EOF on file %s" % self.file_path)
                 self.state.state = 'fin'
             self.blocknumber += 1
             if self.blocknumber > 65535:
@@ -430,3 +416,5 @@ class TftpServerHandler(TftpSession):
                          (self.host, self.port))
         self.timesent = time.time()
         self.state.state = 'oack'
+
+# vim:set sw=4 et sts=4:
