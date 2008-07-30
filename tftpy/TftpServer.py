@@ -15,7 +15,7 @@ class TftpServer(TftpSession):
         self.sock = None
         self.root = tftproot
         # A dict of handlers, where each session is keyed by a string like
-        # ip:tid for the remote end.
+        # local-tid:ip:tid for the remote end.
         self.handlers = {}
 
         if os.path.exists(self.root):
@@ -86,33 +86,25 @@ class TftpServer(TftpSession):
                     buffer, (raddress, rport) = self.sock.recvfrom(MAX_BLKSIZE)
                     logger.debug("Read %d bytes" % len(buffer))
                     recvpkt = tftp_factory.parse(buffer)
-                    key = "%s:%s" % (raddress, rport)
 
                     if isinstance(recvpkt, TftpPacketRRQ):
                         logger.debug("RRQ packet from %s:%s" % (raddress, rport))
-                        if not self.handlers.has_key(key):
-                            try:
-                                logger.debug("New download request, session key = %s"
-                                        % key)
-                                self.handlers[key] = TftpServerHandler(key,
-                                                                       TftpState('rrq'),
-                                                                       self.root,
-                                                                       listenip,
-                                                                       tftp_factory)
-                                self.handlers[key].handle((recvpkt, raddress, rport))
-                            except TftpException, err:
-                                logger.error("Fatal exception thrown from handler: %s"
-                                        % str(err))
-                                logger.debug("Deleting handler: %s" % key)
-                                deletion_list.append(key)
-
-                        else:
-                            logger.warn("Received RRQ for existing session!")
-                            self.senderror(self.sock,
-                                           TftpErrors.IllegalTftpOp,
-                                           raddress,
-                                           rport)
-                            continue
+                        try:
+                            logger.debug("New download request from %s:%s"
+                                    % (raddress, rport))
+                            handler = TftpServerHandler(raddress, int(rport),
+                                                        TftpState('rrq'),
+                                                        self.root,
+                                                        listenip,
+                                                        tftp_factory)
+                            key = handler.key
+                            self.handlers[key] = handler
+                            handler.handle((recvpkt, raddress, rport))
+                        except TftpException, err:
+                            logger.error("Fatal exception thrown from handler: %s"
+                                    % str(err))
+                            logger.debug("Deleting handler: %s" % key)
+                            deletion_list.append(key)
 
                     elif isinstance(recvpkt, TftpPacketWRQ):
                         logger.error("Write requests not implemented at this time.")
@@ -171,12 +163,19 @@ class TftpServerHandler(TftpSession):
     """This class implements a handler for a given server session, handling
     the work for one download."""
 
-    def __init__(self, key, state, root, listenip, factory):
+    def get_key(self):
+        if self.listenport:
+            return "%d:%s:%d" % (self.listenport, self.host, self.port)
+        else:
+            return "%s:%d" % (self.host, self.port)
+    key = property(get_key)
+
+    def __init__(self, host, port, state, root, listenip, factory):
         TftpSession.__init__(self)
-        logger.info("Starting new handler. Key %s." % key)
-        self.key = key
-        self.host, self.port = self.key.split(':')
-        self.port = int(self.port)
+        self.host = host
+        self.port = port
+        self.listenport = None
+        logger.info("Starting new handler for %s." % self.key)
         self.listenip = listenip
         # Note, correct state here is important as it tells the handler whether it's
         # handling a download or an upload.
@@ -198,6 +197,7 @@ class TftpServerHandler(TftpSession):
             count += 1
             if count > 10:
                 raise TftpException, "Failed to bind this handler to any port"
+        self.listenport = self.sock.getsockname()[1]
 
     def check_timeout(self, now):
         """This method checks to see if we've timed-out waiting for traffic
