@@ -228,7 +228,6 @@ class TftpServerHandler(TftpSession):
         """This method generates a new UDP socket, whose listening port must
         be randomly generated, and not conflict with any already in use. For
         now, let the OS do this."""
-        random.seed()
         port = random.randrange(1025, 65536)
         # FIXME - sockets should be non-blocking?
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
