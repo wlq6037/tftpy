@@ -64,8 +64,8 @@ class TftpServer(TftpSession):
             # Build the inputlist array of sockets to select() on.
             inputlist = []
             inputlist.append(self.sock)
-            for key in self.handlers:
-                inputlist.append(self.handlers[key].sock)
+            for handler in self.handlers.values():
+                inputlist.append(handler.sock)
 
             # Block until some socket has input on it.
             logger.debug("Performing select on this inputlist: %s" % inputlist)
@@ -97,14 +97,13 @@ class TftpServer(TftpSession):
                                                         self.root,
                                                         listenip,
                                                         tftp_factory)
-                            key = handler.key
-                            self.handlers[key] = handler
+                            self.handlers[handler.key] = handler
                             handler.handle((recvpkt, raddress, rport))
                         except TftpException, err:
                             logger.error("Fatal exception thrown from handler: %s"
                                     % str(err))
-                            logger.debug("Deleting handler: %s" % key)
-                            deletion_list.append(key)
+                            logger.debug("Deleting handler: %s" % handler.key)
+                            deletion_list.append(handler.key)
 
                     elif isinstance(recvpkt, TftpPacketWRQ):
                         logger.error("Write requests not implemented at this time.")
@@ -124,15 +123,15 @@ class TftpServer(TftpSession):
                         continue
 
                 else:
-                    for key in self.handlers:
-                        if readysock == self.handlers[key].sock:
+                    for handler in self.handlers.values():
+                        if readysock == handler.sock:
                             # FIXME - violating DRY principle with above code
                             try:
-                                self.handlers[key].handle()
+                                handler.handle()
                                 break
                             except TftpException, err:
-                                deletion_list.append(key)
-                                if self.handlers[key].state.state == 'fin':
+                                deletion_list.append(handler.key)
+                                if handler.state.state == 'fin':
                                     logger.info("Successful transfer.")
                                     break
                                 else:
@@ -144,13 +143,13 @@ class TftpServer(TftpSession):
 
             logger.debug("Looping on all handlers to check for timeouts")
             now = time.time()
-            for key in self.handlers:
+            for handler in self.handlers.values():
                 try:
-                    self.handlers[key].check_timeout(now)
+                    handler.check_timeout(now)
                 except TftpException, err:
                     logger.error("Fatal exception thrown from handler: %s"
                             % str(err))
-                    deletion_list.append(key)
+                    deletion_list.append(handler.key)
 
             logger.debug("Iterating deletion list.")
             for key in deletion_list:
