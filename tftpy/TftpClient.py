@@ -210,6 +210,10 @@ class TftpClient(TftpSession):
         # end while
         outputfile.close()
 
+		# The connection is closed. Discard socket and remote transfer port.
+        self.port = None
+        self.sock = None
+
         end_time = time.time()
         duration = end_time - start_time
         if duration == 0:
