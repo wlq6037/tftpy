@@ -23,7 +23,7 @@ def tftpassert(condition, msg):
     with the message passed. This just makes the code throughout cleaner
     by refactoring."""
     if not condition:
-        raise TftpException, msg
+        raise TftpException(msg)
 
 def setLogLevel(level):
     """This function is a utility function for setting the internal log level.
@@ -49,3 +49,9 @@ class TftpException(Exception):
     """This class is the parent class of all exceptions regarding the handling
     of the TFTP protocol."""
     pass
+
+class TftpServerWriteMode(object):
+    """This class defines the server write modes."""
+    Overwrite = 0
+    WriteNew = 1
+    DenyWrite = 2

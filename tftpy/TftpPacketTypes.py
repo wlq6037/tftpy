@@ -2,7 +2,7 @@
 corresponding encode and decode methods for them."""
 
 import struct
-from TftpShared import *
+from .TftpShared import *
 
 class TftpSession(object):
     """This class is the base class for the tftp client and server. Any shared
@@ -59,17 +59,17 @@ class TftpPacketWithOptions(object):
         length = 0
         for c in buffer:
             #log.debug("iterating this byte: " + repr(c))
-            if ord(c) == 0:
+            if c == 0:
                 log.debug("found a null at length %d" % length)
                 if length > 0:
                     format += "%dsx" % length
                     length = -1
                 else:
-                    raise TftpException, "Invalid options in buffer"
+                    raise TftpException("Invalid options in buffer")
             length += 1
 
         log.debug("about to unpack, format is: %s" % format)
-        mystruct = struct.unpack(format, buffer)
+        mystruct = list(x.decode('latin-1') for x in struct.unpack(format, buffer))
 
         tftpassert(len(mystruct) % 2 == 0,
                    "packet with odd number of option/value pairs")
@@ -94,7 +94,7 @@ class TftpPacket(object):
         order suitable for sending over the wire.
 
         This is an abstract method."""
-        raise NotImplementedError, "Abstract method"
+        raise NotImplementedError("Abstract method")
 
     def decode(self):
         """The decode method of a TftpPacket takes a buffer off of the wire in
@@ -104,7 +104,7 @@ class TftpPacket(object):
         datagram.
 
         This is an abstract method."""
-        raise NotImplementedError, "Abstract method"
+        raise NotImplementedError("Abstract method")
 
 class TftpPacketInitial(TftpPacket, TftpPacketWithOptions):
     """This class is a common parent class for the RRQ and WRQ packets, as
@@ -133,18 +133,18 @@ class TftpPacketInitial(TftpPacket, TftpPacketWithOptions):
         if self.mode == "octet":
             format += "5sx"
         else:
-            raise AssertionError, "Unsupported mode: %s" % mode
+            raise AssertionError("Unsupported mode: %s" % mode)
         # Add options.
         options_list = []
-        if self.options.keys() > 0:
+        if len(list(self.options.keys())) > 0:
             log.debug("there are options to encode")
             for key in self.options:
                 # Populate the option name
                 format += "%dsx" % len(key)
-                options_list.append(key)
+                options_list.append(key.encode('latin-1'))
                 # Populate the option value
                 format += "%dsx" % len(str(self.options[key]))
-                options_list.append(str(self.options[key]))
+                options_list.append(str(self.options[key]).encode('latin-1'))
 
         log.debug("format is %s" % format)
         log.debug("options_list is %s" % options_list)
@@ -152,8 +152,8 @@ class TftpPacketInitial(TftpPacket, TftpPacketWithOptions):
 
         self.buffer = struct.pack(format,
                                   self.opcode,
-                                  self.filename,
-                                  self.mode,
+                                  self.filename.encode('latin-1'),
+                                  self.mode.encode('latin-1'),
                                   *options_list)
 
         log.debug("buffer is " + repr(self.buffer))
@@ -170,7 +170,7 @@ class TftpPacketInitial(TftpPacket, TftpPacketWithOptions):
         subbuf = self.buffer[2:]
         for c in subbuf:
             log.debug("iterating this byte: " + repr(c))
-            if ord(c) == 0:
+            if c == 0:
                 nulls += 1
                 log.debug("found a null at length %d, now have %d"
                              % (length, nulls))
@@ -188,13 +188,13 @@ class TftpPacketInitial(TftpPacket, TftpPacketWithOptions):
         shortbuf = subbuf[:tlength+1]
         log.debug("about to unpack buffer with format: %s" % format)
         log.debug("unpacking buffer: " + repr(shortbuf))
-        mystruct = struct.unpack(format, shortbuf)
+        mystruct = list(x.decode('latin-1') for x in struct.unpack(format, shortbuf))
 
         tftpassert(len(mystruct) == 2, "malformed packet")
+        log.debug("setting filename to %s" % mystruct[0])
+        log.debug("setting mode to %s" % mystruct[1])
         self.filename = mystruct[0]
-        self.mode = mystruct[1].lower() # force lc - bug 17
-        log.debug("set filename to %s" % self.filename)
-        log.debug("set mode to %s" % self.mode)
+        self.mode = mystruct[1]
 
         self.options = self.decode_options(subbuf[tlength+1:])
         return self
@@ -370,7 +370,7 @@ class TftpPacketERR(TftpPacket):
         self.buffer = struct.pack(format,
                                   self.opcode,
                                   self.errorcode,
-                                  self.errmsgs[self.errorcode])
+                                  self.errmsgs[self.errorcode].encode('latin-1'))
         return self
 
     def decode(self):
@@ -419,8 +419,8 @@ class TftpPacketOACK(TftpPacket, TftpPacketWithOptions):
             log.debug("value is %s" % self.options[key])
             format += "%dsx" % len(key)
             format += "%dsx" % len(self.options[key])
-            options_list.append(key)
-            options_list.append(self.options[key])
+            options_list.append(key.encode('latin-1'))
+            options_list.append(self.options[key].encode('latin-1'))
         self.buffer = struct.pack(format, self.opcode, *options_list)
         return self
 
@@ -435,13 +435,13 @@ class TftpPacketOACK(TftpPacket, TftpPacketWithOptions):
         the options so that the session can update itself to the negotiated
         options."""
         for name in self.options:
-            if options.has_key(name):
+            if name in options:
                 if name == 'blksize':
                     # We can accept anything between the min and max values.
-                    size = self.options[name]
-                    if size >= MIN_BLKSIZE and size <= MAX_BLKSIZE:
+                    size = int(self.options[name])
+                    if (size >= MIN_BLKSIZE) and (size <= MAX_BLKSIZE):
                         log.debug("negotiated blksize of %d bytes" % size)
-                        options[blksize] = size
+                        options['blksize'] = size
                 else:
-                    raise TftpException, "Unsupported option: %s" % name
+                    raise TftpException("Unsupported option: %s" % name)
         return True
