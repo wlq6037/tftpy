@@ -28,6 +28,7 @@ class TftpServer(TftpSession):
         # A dict of sessions, where each session is keyed by a string like
         # ip:tid for the remote end.
         self.sessions = {}
+        self.server_callback = None
 
         if os.path.exists(self.root):
             log.debug("tftproot %s does exist" % self.root)
@@ -49,11 +50,16 @@ class TftpServer(TftpSession):
     def listen(self,
                listenip="",
                listenport=DEF_TFTP_PORT,
+               server_callback=None,
                timeout=SOCK_TIMEOUT):
         """Start a server listening on the supplied interface and port. This
         defaults to INADDR_ANY (all interfaces) and UDP port 69. You can also
-        supply a different socket timeout value, if desired."""
+        supply a different socket timeout value, if desired. The
+        server_callback is a callable that will be called when the transfer is
+        complete, being passed
+
         tftp_factory = TftpPacketFactory()
+        self.server_callback = server_callback
 
         # Don't use new 2.5 ternary operator yet
         # listenip = listenip if listenip else '0.0.0.0'
@@ -105,7 +111,8 @@ class TftpServer(TftpSession):
                                                                rport,
                                                                timeout,
                                                                self.root,
-                                                               self.dyn_file_func)
+                                                               self.dyn_file_func,
+                                                               self.server_callback)
                         try:
                             self.sessions[key].start(buffer)
                         except TftpException, err:

@@ -333,14 +333,14 @@ class TftpStateServerStart(TftpState):
         log.debug("In TftpStateServerStart.handle")
         if isinstance(pkt, TftpPacketRRQ):
             log.debug("Handling an RRQ packet")
-            return TftpStateServerRecvRRQ(self.context).handle(pkt,
+            return ( TftpStateServerRecvRRQ(self.context).handle(pkt,
                                                                raddress,
-                                                               rport)
+                                                               rport), False )
         elif isinstance(pkt, TftpPacketWRQ):
             log.debug("Handling a WRQ packet")
-            return TftpStateServerRecvWRQ(self.context).handle(pkt,
+            return ( TftpStateServerRecvWRQ(self.context).handle(pkt,
                                                                raddress,
-                                                               rport)
+                                                               rport), True )
         else:
             self.sendError(TftpErrors.IllegalTftpOp)
             raise TftpException, \

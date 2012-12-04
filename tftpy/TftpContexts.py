@@ -67,7 +67,7 @@ class TftpMetrics(object):
 class TftpContext(object):
     """The base class of the contexts."""
 
-    def __init__(self, host, port, timeout, dyn_file_func=None):
+    def __init__(self, host, port, timeout, dyn_file_func=None, server_callback=None):
         """Constructor for the base context, setting shared instance
         variables."""
         self.file_to_transfer = None
@@ -95,6 +95,7 @@ class TftpContext(object):
         # The last packet we sent, if applicable, to make resending easy.
         self.last_pkt = None
         self.dyn_file_func = dyn_file_func
+        self.server_callback = server_callback
         # Count the number of retry attempts.
         self.retry_count = 0
 
@@ -194,18 +195,21 @@ class TftpContext(object):
 
 class TftpContextServer(TftpContext):
     """The context for the server."""
-    def __init__(self, host, port, timeout, root, dyn_file_func=None):
+    def __init__(self, host, port, timeout, root, dyn_file_func=None, server_callback=None):
         TftpContext.__init__(self,
                              host,
                              port,
                              timeout,
-                             dyn_file_func
+                             dyn_file_func,
+                             server_callback
                              )
         # At this point we have no idea if this is a download or an upload. We
         # need to let the start state determine that.
         self.state = TftpStateServerStart(self)
         self.root = root
         self.dyn_file_func = dyn_file_func
+        self.server_callback = server_callback
+        self.recv_wrq = None
 
     def __str__(self):
         return "%s:%s %s" % (self.host, self.port, self.state)
@@ -226,13 +230,14 @@ class TftpContextServer(TftpContext):
 
         # Call handle once with the initial packet. This should put us into
         # the download or the upload state.
-        self.state = self.state.handle(pkt,
-                                       self.host,
-                                       self.port)
+        self.state, self.recv_wrq = self.state.handle(pkt,
+                                                      self.host,
+                                                      self.port)
 
     def end(self):
         """Finish up the context."""
         TftpContext.end(self)
+        self.server_callback(self.file_to_transfer, self.recv_wrq)
         self.metrics.end_time = time.time()
         log.debug("Set metrics.end_time to %s" % self.metrics.end_time)
         self.metrics.compute()
