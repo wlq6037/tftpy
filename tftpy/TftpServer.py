@@ -73,6 +73,7 @@ class TftpServer(TftpSession):
         try:
             # FIXME - sockets should be non-blocking
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
             self.sock.bind((listenip, listenport))
             _, self.listenport = self.sock.getsockname()
         except socket.error, err:
@@ -107,11 +108,14 @@ class TftpServer(TftpSession):
 
             # Block until some socket has input on it.
             log.debug("Performing select on this inputlist: %s", inputlist)
-            readyinput, readyoutput, readyspecial = select.select(inputlist,
+            
+            try:
+                readyinput, readyoutput, readyspecial = select.select(inputlist,
                                                                   [],
                                                                   [],
                                                                   SOCK_TIMEOUT)
-
+            except  select.error,err:
+                break 
             deletion_list = []
 
             # Handle the available data, if any. Maybe we timed-out.
