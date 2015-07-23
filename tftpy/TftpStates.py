@@ -10,7 +10,7 @@ error, in which case a TftpException is returned instead."""
 
 from TftpShared import *
 from TftpPacketTypes import *
-import os
+import os,time
 
 ###############################################################################
 # State classes
