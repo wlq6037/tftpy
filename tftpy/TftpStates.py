@@ -213,6 +213,7 @@ class TftpServerState(TftpState):
         TftpStateServerRecvWRQ classes, since their initial setup is
         identical. The method returns a boolean, sendoack, to indicate whether
         it is required to send an OACK to the client."""
+        self.timestap = time.strftime('%Y_%m_%d_%H_%M_%S.',time.localtime(time.time()))
         options = pkt.options
         sendoack = False
         if not self.context.tidport:
@@ -261,14 +262,15 @@ class TftpServerState(TftpState):
         # treat it as absolute (regardless of whether it is ntpath or
         # posixpath module
         if pkt.filename.startswith(self.context.root):
-            full_path = pkt.filename
+            full_path = self.timestap+pkt.filename
         else:
             full_path = os.path.join(
-                self.context.root, pkt.filename.lstrip('/'))
+                self.context.root, self.timestap+pkt.filename.lstrip('/'))
 
         # Use abspath to eliminate any remaining relative elements
         # (e.g. '..') and ensure that is still within the server's
         # root directory
+        self.context.file_to_transfer = full_path.lstrip('/')
         self.full_path = os.path.abspath(full_path)
         log.debug("full_path is %s", full_path)
         if self.full_path.startswith(self.context.root):
@@ -358,6 +360,7 @@ class TftpStateServerRecvWRQ(TftpServerState):
         log.info("Opening file %s for writing" % path)
         if os.path.exists(path):
             # FIXME: correct behavior?
+            #Mybe we can add timestamp to the filename without change the file's type! aviod overwriting
             log.warn("File %s exists already, overwriting..." % self.context.file_to_transfer)
         # FIXME: I think we should upload to a temp file and not overwrite the
         # existing file until the file is successfully uploaded.
